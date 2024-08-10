@@ -1,0 +1,415 @@
+
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Statistical Tests')
+    .addItem('💹 Calculate Pooled Deviation', 'displayPooledDeviation')
+    .addItem('📊 Paired 2 sample T test🎲', 'tTestPaired')
+    .addItem('🔍Proportion Test for conversion🔢','proportionTest' )
+    .addToUi();
+}
+
+
+function onInstall(e) {
+  onOpen(e);
+}
+
+
+function displayPooledDeviation(){
+  var input_to_pd = getInputRange();
+  pd_array = calPooledDeviation(input_to_pd);
+  var cellRange = getOutputRange();
+    var outputRange = SpreadsheetApp.getActiveSheet().getRange(cellRange);
+    var finalRange = outputRange.offset(0, 0, 5, 2);
+      // Output the result to the selected cell
+      finalRange.getCell(1,1).setValue("Pooled Deviation");
+      finalRange.getCell(1,2).setValue(pd_array[4]);
+      finalRange.getCell(2,1).setValue("S1");
+      finalRange.getCell(2,2).setValue(pd_array[0]);
+      finalRange.getCell(3,1).setValue("S2");
+      finalRange.getCell(3,2).setValue(pd_array[1]);
+      finalRange.getCell(4,1).setValue("n1");
+      finalRange.getCell(4,2).setValue(pd_array[2]);
+      finalRange.getCell(5,1).setValue("n2");
+      finalRange.getCell(5,2).setValue(pd_array[3])
+      finalRange.getCell(1,1).setBackground('#FFE598');
+      finalRange.getCell(1,2).setBackground('#FFE598');
+
+}
+
+
+function calPooledDeviation(input) {
+    Logger.log(input);
+    var values = input.getValues();
+    // input is gathered so calculating other params
+    var sample1Sum = 0;
+    var sample2Sum = 0;
+    var sample1Count = 0;
+    var sample2Count = 0;
+
+    for (var i = 0; i < values.length; i++) {
+      if (values[i][0] !== "") {
+        sample1Sum += values[i][0];
+        sample1Count++;
+      }
+      if (values[i][1] !== "") {
+        sample2Sum += values[i][1];
+        sample2Count++;
+      }
+    }
+  
+    var sample1Mean = sample1Sum / sample1Count;
+    var sample2Mean = sample2Sum / sample2Count;
+  
+    // For each data point we calculate the numerator part which is like mean squares
+    var sample1SquaredDeviationsSum = 0;
+    var sample2SquaredDeviationsSum = 0;
+  
+    for (var i = 0; i < values.length; i++) {
+      if (values[i][0] !== "") {
+        sample1SquaredDeviationsSum += Math.pow(values[i][0] - sample1Mean, 2);
+      }
+      if (values[i][1] !== "") {
+        sample2SquaredDeviationsSum += Math.pow(values[i][1] - sample2Mean, 2);
+      }
+    }
+
+    // now i am calculating sample variances 
+    var sample1deviation = Math.sqrt(sample1SquaredDeviationsSum/(sample1Count -1)).toFixed(2);
+    var sample2deviation = Math.sqrt(sample2SquaredDeviationsSum/(sample2Count -1)).toFixed(2);
+    // remember n-1 will get cancelled out each other in the pooledSD formula 
+    var pooledDeviation = Math.sqrt((sample1SquaredDeviationsSum + sample2SquaredDeviationsSum)/(sample1Count + sample2Count - 2)).toFixed(2);
+
+    // i will store the s1,s2,n1,n2,PD values in same order in an array
+    var valueArray = [];
+    valueArray[0] = sample1deviation;
+    valueArray[1] = sample2deviation;
+    valueArray[2] = sample1Count;
+    valueArray[3] = sample2Count;
+    valueArray[4] = pooledDeviation;
+
+    return valueArray;
+
+}
+
+
+function getInputRange(){
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var selectedRange = spreadsheet.getActiveRange();
+  var ui = SpreadsheetApp.getUi();
+
+  if (selectedRange.getNumColumns() !== 2) {
+      ui.alert("Invalid range selected for two sample test. Only 2 columns should be selected");
+      return null; // Returning null to the calling funxn if the range is something else.handle it there
+  } else {
+      return selectedRange; // we have to use this in the required function 
+  }
+}
+
+
+function getOutputRange(){
+  var ui = SpreadsheetApp.getUi();
+  var cell = ui.prompt("Enter the cell from where you wanna display the results like D5 or N420");
+  if (cell.getSelectedButton() == ui.Button.OK) {
+    var cellRange = cell.getResponseText();
+    if (cellRange.trim() === "") {
+      ui.alert("Ending the test since you have not entered output cell-value");
+      return; 
+    }
+  }
+  SpreadsheetApp.getActiveSheet().getRange(cellRange).clear();
+  return cellRange
+}
+
+
+function enterNumber(displayString){
+  var isValidInput = false;
+  var ui = SpreadsheetApp.getUi();
+  while (!isValidInput) {
+    var result = ui.prompt(
+      displayString,
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (result.getSelectedButton() == ui.Button.OK && !isNaN(parseInt(result.getResponseText()))){
+      var num_entered = parseInt(result.getResponseText());
+      isValidInput = true; 
+    } else {
+      ui.alert('Enter some number Or else I will ask again');
+    }
+  }
+  return num_entered;
+}
+
+
+function calculateCriticalTValue(df, alpha,outputR) {
+  var tValues = [];
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = spreadsheet.getActiveSheet(); 
+  
+  for (var i = 0; i < 3; i++) {
+    var func = (i == 0) ? '=TINV(' : '=T.INV('; 
+    var formula = func + alpha + ', ' + df + ')';
+    sheet.getRange(outputR).setFormula(formula);
+    tValues[i] = sheet.getRange(outputR).getValue();
+    sheet.getRange(outputR).clear();
+  }
+  tValues[2] = Math.abs(tValues[2]);
+  return tValues;
+}
+
+
+function tTestPaired() {
+  var values = getInputRange().getValues();
+  var c0_ids = enterNumber("Enter the number of digits in control-cohort or first column");
+  var c1_ids = enterNumber("Enter the number of digits in Test-cohort or second column");
+  var cellRange = getOutputRange();
+  var nf = (c1_ids/c0_ids).toFixed(2);
+  var diff = [];
+  var diffSum = 0;
+  var diffNonNullCount = 0; 
+  for (var i = 0; i < values.length; i++) {
+      if (!(values[i][0] !== "" ^ values[i][1] !=="")) {
+        if(values[i][0] !== ""){
+        diff[i] = values[i][1] - (values[i][0]*nf) ;
+        diffSum += diff[i];
+        diffNonNullCount++;
+        }
+      }else {
+        ui.alert("Paired Test cannot accept this data. It contains single cell null value");
+        return;
+      }
+  }
+
+  var meanDiff = (diffSum/diffNonNullCount).toFixed(2);
+
+  // For each data point we calculate the numerator part for the differences
+  var sampleDeviationSumDiff = 0;
+
+  for (var i = 0; i < diff.length ; i++) {
+    if (typeof diff[i] === 'number') {
+    sampleDeviationSumDiff += Math.pow(diff[i] - meanDiff, 2);
+    }
+  }
+  var stdError = Math.sqrt(sampleDeviationSumDiff/((diffNonNullCount)*(diffNonNullCount-1)));
+  stdError = stdError.toFixed(2);
+  var hypoMeanDiff = enterNumber('Enter the Hypothesised Mean difference \n Enter 0 if no difference is expected \n This should be C1-C0 and not C0-C1');
+  var tStatistic = ((meanDiff -hypoMeanDiff)/stdError).toFixed(2);
+  var signLevel = enterNumber('Enter the significance level. Ex: if sig-level is 5% then enter 5');
+  signLevel = signLevel/100;
+
+  var tail = enterNumber("Which tailed test to perform? \n This will be based on Ha \n For 2-tail test: Enter 0 \n For left-tail test: Enter 1 \n For right-tail test: Enter 2(Default)");
+  var test_tail;
+  if(tail == 0){
+    test_tail = '2-tail Test';
+  } else{
+    if(tail ==1){
+      test_Tail = 'Left-tailed Test'
+    } else{test_tail = 'Right-tailed Test'}
+  }
+    var tCritical = calculateCriticalTValue((diff.length -1), signLevel,cellRange)[tail]; 
+    var left_cv = (hypoMeanDiff - (tCritical*stdError)).toFixed(2);
+    var right_cv = (hypoMeanDiff + (tCritical*stdError)).toFixed(2);
+    var logicValues = determineTStat(left_cv,right_cv,meanDiff,tStatistic,tail,cellRange,diffNonNullCount-1);
+
+    var outputRange = SpreadsheetApp.getActiveSheet().getRange(cellRange);
+    var finalRange = outputRange.offset(0, 0, 11, 2)
+    // Output the result to the selected cell
+    finalRange.getCell(1,1).setValue("Paired Two sample T test");
+    finalRange.getCell(1,2).setValue(test_tail);
+
+    finalRange.getCell(2,1).setValue("Hypothesised mean diff");
+    finalRange.getCell(3,1).setValue("standard error of diff dist");
+    finalRange.getCell(4,1).setValue("significance in %");
+    finalRange.getCell(5,1).setValue("T value");
+    finalRange.getCell(6,1).setValue("Actual mean diff");
+    finalRange.getCell(7,1).setValue("t Statistic");
+    finalRange.getCell(8,1).setValue("Probability for actual mean");
+    finalRange.getCell(9,1).setValue("Left critical interval point");
+    finalRange.getCell(10,1).setValue("Right critical interval point");
+    finalRange.getCell(11,1).setValue("The results seem to be ->");
+
+    finalRange.getCell(2,2).setValue(hypoMeanDiff);
+    finalRange.getCell(3,2).setValue(stdError);
+    finalRange.getCell(4,2).setValue(signLevel*100 + "%");
+    finalRange.getCell(5,2).setValue(tCritical.toFixed(2));
+    finalRange.getCell(6,2).setValue(meanDiff);
+    finalRange.getCell(7,2).setValue(tStatistic);
+    finalRange.getCell(8,2).setValue((logicValues[0]*100) + '%');
+    finalRange.getCell(9,2).setValue(left_cv);
+    finalRange.getCell(10,2).setValue(right_cv);
+    finalRange.getCell(11,2).setValue(logicValues[1]);
+
+    finalRange.setBorder(true, true, true, true, true, true);
+    finalRange.setHorizontalAlignment("center");
+    finalRange.getCell(1,1).setBackground('#FFE598');
+    finalRange.getCell(1,2).setBackground('#FFE598');
+    if(logicValues[1] === 'Significant'){
+      colour = 'green';
+    } else{ 
+      colour = 'red';
+      }
+    finalRange.getCell(11,2).setBackground(colour);
+    
+}
+
+
+function determineTStat(leftCt, rightCt,meanDiff ,tStat, tail, cellRange, degreesOfFreedom) {
+  var logicArray = [];
+  var prob;
+
+  if (tail === 0) {
+    prob = SpreadsheetApp.getActiveSheet().getRange(cellRange).setFormula('=T.DIST.2T(' + Math.abs(tStat) + ', ' + degreesOfFreedom + ')');
+    logicArray[0] = prob.getValue();
+    if (meanDiff <= leftCt || meanDiff >= rightCt) {
+      logicArray[1] = 'Significant';
+    } else {
+      logicArray[1] = 'Not-significant';
+    }
+  } else {
+    prob = SpreadsheetApp.getActiveSheet().getRange(cellRange).setFormula('=T.DIST(' + Math.abs(tStat) + ', ' + degreesOfFreedom + ', TRUE)');
+    logicArray[0] = 1 - prob.getValue();
+    if (tail === 1) {
+      if (meanDiff <= leftCt) {
+        logicArray[1] = 'Significant';
+      } else {
+        logicArray[1] = 'Not-significant';
+      }
+    } else {
+      if (meanDiff >= rightCt) {
+        logicArray[1] = 'Significant';
+      } else {
+        logicArray[1] = 'Not-significant';
+      }
+    }
+  }
+  prob.clear({ contentsOnly: true, skipFilteredRows: true });
+  return logicArray;
+}
+
+
+function calculateCriticalZValue(alpha,outputR) {
+  var zValues = [];
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = spreadsheet.getActiveSheet(); 
+  var dividend = 2;
+  for (var i = 0; i < 2; i++) {
+    var formula = '=NORMSINV(' + alpha/dividend + ')';
+    sheet.getRange(outputR).setFormula(formula);
+    zValues[i] = sheet.getRange(outputR).getValue();
+    sheet.getRange(outputR).clear();
+    dividend--
+  }
+  zValues = zValues.map(function(value){
+    return Math.abs(value);
+  });
+  return zValues;
+}
+
+
+function proportionTest(){
+  var c0_n1 = enterNumber("Enter the number of samples taken in Control cohort");
+  var x1_string = "Now, out of these " + c0_n1 + " samples how many qualified the condition \n Ex: Converted users";
+  var c0_x1 = enterNumber(x1_string);
+  var c1_n2 = enterNumber("Enter the number of samples taken in the Test cohort");
+  var x2_string = "Now, out of these " + c1_n2 + " samples how many qualified the condition \n Ex: Converted users";
+  var c1_x2 = enterNumber(x2_string);
+  
+  var p1 = c0_x1/c0_n1;
+  var p2 = c1_x2/c1_n2;
+
+  var pD = (c0_x1+c1_x2)/(c0_n1+c1_n2);
+  var hypoPropDiff = enterNumber("Enter the hypothesised difference in proportions in percentage points \n Enter 0 if you don't expect any difference\n This is test-control and not p0-p1");
+  hypoPropDiff = hypoPropDiff/100;
+  var nAdd = (1/c0_n1) + (1/c1_n2);
+  var zStat = (p2-p1-hypoPropDiff)/Math.sqrt(pD*(1-pD)*nAdd);
+  var cellRange = getOutputRange();
+  var signLevel = enterNumber("Enter the percentage singificance level at you which wanna test \n Ex: Enter 5 for 5% signi-level");
+  signLevel = signLevel/100;
+  var tail = enterNumber("Enter 0 for two tailed test or 1 for Right tailed \n Note: No left tail has been provided\n Nava will mention the reasoning");
+  var tail_string;
+  var zValue = calculateCriticalZValue(signLevel,cellRange);
+  if(tail===0){
+    tail_string = "2 tailed";
+  } else{
+    if(tail===1){
+      tail_string = "Right tailed";
+    } else{
+      tail_string = 'Left tailed test not provided for conversion bro';
+    }
+  }
+
+  var logicalArray = determineZStat(zStat,tail,signLevel,cellRange);
+
+  var outputRange = SpreadsheetApp.getActiveSheet().getRange(cellRange);
+  var finalRange = outputRange.offset(0, 0, 9, 2);
+  finalRange.getCell(1,1).setValue("Proportional Z test");
+  finalRange.getCell(1,2).setValue(tail_string);
+
+  finalRange.getCell(2,1).setValue("Proportion-1");
+  finalRange.getCell(3,1).setValue("Proportion-2");
+  finalRange.getCell(4,1).setValue("Hypothesised proportional diff in %points");
+  finalRange.getCell(5,1).setValue("Actual proportional diff in %points");
+  finalRange.getCell(6,1).setValue("Significance level choosen");
+  finalRange.getCell(7,1).setValue("Z statistic");
+  finalRange.getCell(8,1).setValue("Probability of proportional diff");
+  finalRange.getCell(9,1).setValue("Results of the Test are ->");
+  
+  finalRange.getCell(2,2).setValue((p1*100) + "%");
+  finalRange.getCell(3,2).setValue((p2*100) + "%");
+  finalRange.getCell(4,2).setValue((hypoPropDiff*100));
+  finalRange.getCell(5,2).setValue(((p2-p1)*100));
+  finalRange.getCell(6,2).setValue((signLevel*100) + "%");
+  finalRange.getCell(7,2).setValue(zStat.toFixed(2));
+  finalRange.getCell(8,2).setValue((logicalArray[0]*100).toFixed(4) + "%");
+  finalRange.getCell(9,2).setValue(logicalArray[1]);
+
+
+  finalRange.setBorder(true, true, true, true, true, true);
+  finalRange.getCell(1,1).setBackground('#FFE598');
+  finalRange.getCell(1,2).setBackground('#FFE598');
+  finalRange.setHorizontalAlignment("center");
+    if(logicalArray[1] === 'Significant'){
+      colour = 'green';
+    } else{ 
+      colour = 'red';
+      }
+    finalRange.getCell(9,2).setBackground(colour);
+
+}
+
+function determineZStat(zStat, tail,signLevel,cellRange) {
+  var logicArray = [];
+  var prob;
+  zStat = Math.abs(zStat);
+  if (tail === 0) {
+    var formula = '=2*(1- NORMSDIST(' + zStat + '))'
+    prob = SpreadsheetApp.getActiveSheet().getRange(cellRange).setFormula(formula);
+    logicArray[0] = prob.getValue();
+    if(logicArray[0].toFixed(2) <= signLevel.toFixed(2)){
+      logicArray[1] = 'Significant';
+    } else{
+      logicArray[1] = 'Not-significant';
+    }
+    prob.clear({ contentsOnly: true, skipFilteredRows: true });
+  }else{
+    if(tail === 1){
+      var formula = '1- NORMSDIST(' + zStat + ')'
+      prob = SpreadsheetApp.getActiveSheet().getRange(cellRange).setFormula(formula);
+      logicArray[0] = prob.getValue();
+      if(logicArray[0].toFixed(2) <= signLevel.toFixed(2)){
+        logicArray[1] = 'Significant';
+      } else{
+        logicArray[1] = 'Not-significant';
+      }
+       prob.clear({ contentsOnly: true, skipFilteredRows: true });
+    } else {
+      logicArray[0] = 0;
+      logicArray[1] = "Can not determine tail of the test";
+    } 
+  } 
+  return logicArray;
+}
+
+
+
+
+
