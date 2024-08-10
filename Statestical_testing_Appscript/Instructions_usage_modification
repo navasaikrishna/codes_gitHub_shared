@@ -1,0 +1,20 @@
+Steps to use:
+1. Copy the script and paste in the Appscript editor
+2. Click on save project and close the appscript window
+3. Open the main Google sheet through which the script has been opened before
+4. The refresh it and there should be an option called statistical tests
+
+Steps to add/change:
+1. Copy the script and paste in the Appscript editor
+2. Modify the script 
+3. Test the script
+4. then click on RUN and save
+
+
+Steps tp deploy and publish:
+1. Get access to google marketplace by setting a project and enabling the google transfer SDK 
+2. Once done follow the steps to authourise the google project
+3. ONce the prject has been created change the appscript project to the new project created
+4. Deplot the changes
+5. Test the deployment
+6. Publish the deployment
